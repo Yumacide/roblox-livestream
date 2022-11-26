@@ -1,0 +1,16 @@
+[package]
+name = "video"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+fast_image_resize = "2.3.0"
+image = "0.24.5"
+png = "0.17.7"
+rand = "0.8.5"
+screenshots = {version = "0.4.5", path = "screenshots"}
+
+[workspace]
+members = ["screenshots"]
