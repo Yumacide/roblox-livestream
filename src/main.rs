@@ -1,61 +1,44 @@
 use fast_image_resize::{self as fr, Image, PixelType};
-use image::{codecs::png::PngEncoder, ColorType, ImageEncoder};
 use screenshots::Screen;
 use std::{
-    fs::File,
-    io::{BufRead, BufReader, BufWriter, Write},
+    io::Write,
     net::{TcpListener, TcpStream},
     num::NonZeroU32,
-    path::Path,
+    sync::{Arc, Mutex},
     thread, time,
 };
 
 fn main() {
-    println!("Hello, world!");
     let screen = Screen::all().unwrap()[0];
-    let mut current_img: Vec<u8> = vec![];
-    thread::spawn(move || loop {
-        let start = time::Instant::now();
-        let img = screen.capture().unwrap();
+    let current_img: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(vec![]));
+    {
+        let current_img = Arc::clone(&current_img);
+        thread::spawn(move || loop {
+            let _img = screen.capture().unwrap();
 
-        println!("captured screen in {}ms", start.elapsed().as_millis());
-
-        let mut img = Image::from_vec_u8(
-            NonZeroU32::new(img.width()).unwrap(),
-            NonZeroU32::new(img.height()).unwrap(),
-            img.buffer().to_vec(),
-            PixelType::U8x4,
-        )
-        .unwrap();
-
-        let dst_width = NonZeroU32::new(854).unwrap();
-        let dst_height = NonZeroU32::new(480).unwrap();
-        let img = resize(&mut img, dst_width, dst_height);
-        println!("resized in {}ms", start.elapsed().as_millis());
-        current_img = img.buffer().to_vec();
-
-        // Write destination image as PNG-file
-        let path = Path::new(r"target/image.png");
-        let file = File::create(path).unwrap();
-        let mut result_buf = BufWriter::new(file);
-        PngEncoder::new(&mut result_buf)
-            .write_image(
-                img.buffer(),
-                dst_width.get(),
-                dst_height.get(),
-                ColorType::Rgba8,
+            let mut img = Image::from_vec_u8(
+                NonZeroU32::new(_img.width()).unwrap(),
+                NonZeroU32::new(_img.height()).unwrap(),
+                _img.buffer().to_vec(),
+                PixelType::U8x4,
             )
             .unwrap();
 
-        thread::sleep(time::Duration::from_millis(5000));
-    });
+            let dst_width = NonZeroU32::new(192).unwrap();
+            let dst_height = NonZeroU32::new(108).unwrap();
+            let img = resize(&mut img, dst_width, dst_height);
+
+            *current_img.lock().unwrap() = img.buffer().to_vec();
+
+            thread::sleep(time::Duration::from_millis(100));
+        });
+    }
 
     let listener = TcpListener::bind("127.0.0.1:7331").unwrap();
 
     for stream in listener.incoming() {
         let stream = stream.unwrap();
-        handle_connection(stream);
-        println!("Connection established!");
+        handle_connection(stream, current_img.lock().unwrap().to_vec());
     }
 }
 
@@ -87,15 +70,18 @@ fn resize<'a>(
     dst_image
 }
 
-fn handle_connection(mut stream: TcpStream) {
-    let buf_reader = BufReader::new(&mut stream);
-    let http_request: Vec<_> = buf_reader
-        .lines()
-        .map(|result| result.unwrap())
-        .take_while(|line| !line.is_empty())
-        .collect();
+fn handle_connection(mut stream: TcpStream, img: Vec<u8>) {
+    let mut str = String::new();
+    let mut i = 0;
+    for n in img.iter() {
+        i += 1;
+        if i % 4 == 0 {
+            continue;
+        }
+        str.push(*n as char);
+    }
 
-    let response = "HTTP/1.1 200 OK\r\n\r\n";
+    let response = format!("HTTP/1.1 200 OK \r\n\r\n{}", str);
     stream.write_all(response.as_bytes()).unwrap();
-    println!("Request: {:#?}", http_request);
+    println!("{} pixels", str.len() / 3);
 }
